@@ -28,3 +28,16 @@ class OrderOut(BaseModel):
     created_at: datetime
     lines: list[OrderLineOut]
     total_cents: int
+
+
+class CustomerOut(BaseModel):
+    id: int
+    name: str
+    email: str
+
+
+class OrderSummary(BaseModel):
+    id: int
+    created_at: datetime
+    line_count: int
+    total_cents: int

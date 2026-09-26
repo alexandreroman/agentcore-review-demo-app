@@ -4,7 +4,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 
 from app.database import Base, SessionLocal, engine
-from app.routers import orders
+from app.routers import customers, orders
 from app.seed import seed
 
 
@@ -18,3 +18,4 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
 app = FastAPI(title="Order management API", lifespan=lifespan)
 app.include_router(orders.router)
+app.include_router(customers.router)
