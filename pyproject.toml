@@ -1,0 +1,19 @@
+[project]
+name = "agentcore-review-demo-app"
+version = "0.1.0"
+description = "Order management API reviewed by Agentic Code Review with AgentCore x Temporal"
+requires-python = ">=3.14"
+dependencies = [
+    "fastapi==0.141.1",
+    "sqlalchemy==2.1.1",
+    "uvicorn==0.54.0",
+]
+
+[dependency-groups]
+dev = ["pytest==9.1.1"]
+
+[tool.uv]
+package = false
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
