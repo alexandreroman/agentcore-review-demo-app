@@ -10,7 +10,8 @@ class Customer(Base):
     __tablename__ = "customers"
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    name: Mapped[str]
+    # Indexed for the prefix search in the customers router; email is indexed by its unique constraint.
+    name: Mapped[str] = mapped_column(index=True)
     email: Mapped[str] = mapped_column(unique=True)
     orders: Mapped[list[Order]] = relationship(back_populates="customer")
 
