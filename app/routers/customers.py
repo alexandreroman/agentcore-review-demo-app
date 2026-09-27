@@ -1,8 +1,9 @@
 from fastapi import APIRouter, HTTPException
 from sqlalchemy import select, text
+from sqlalchemy.orm import selectinload
 
 from app.database import SessionDep
-from app.models import Order, OrderLine
+from app.models import Order
 from app.pricing import order_total
 from app.schemas import CustomerOut, OrderSummary
 
@@ -32,20 +33,18 @@ def customer_orders(session: SessionDep, customer_id: int, limit: int = 20, offs
         raise HTTPException(status_code=422, detail="offset must not be negative")
     orders = session.scalars(
         select(Order)
+        .options(selectinload(Order.lines))
         .where(Order.customer_id == customer_id)
         .order_by(Order.created_at.desc(), Order.id.desc())
         .limit(limit)
         .offset(offset)
     ).all()
-    history = []
-    for order in orders:
-        lines = session.scalars(select(OrderLine).where(OrderLine.order_id == order.id)).all()
-        history.append(
-            OrderSummary(
-                id=order.id,
-                created_at=order.created_at,
-                line_count=len(lines),
-                total_cents=order_total(lines),
-            )
+    return [
+        OrderSummary(
+            id=order.id,
+            created_at=order.created_at,
+            line_count=len(order.lines),
+            total_cents=order_total(order.lines),
         )
-    return history
+        for order in orders
+    ]
