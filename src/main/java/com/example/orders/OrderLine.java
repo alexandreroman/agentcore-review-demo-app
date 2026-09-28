@@ -23,6 +23,14 @@ class OrderLine implements PricedLine {
     @JoinColumn(name = "order_id")
     private Order order;
 
+    /**
+     * Read-only mapping of the foreign key that is already part of every {@code order_lines} row, so
+     * the owning order's id can be read without fetching the order. The association stays the only
+     * writable side, and {@link #setOrder(Order)} keeps this field in sync with it.
+     */
+    @Column(name = "order_id", insertable = false, updatable = false)
+    private Long orderId;
+
     @Column(nullable = false)
     private String product;
 
@@ -41,6 +49,7 @@ class OrderLine implements PricedLine {
 
     void setOrder(Order order) {
         this.order = order;
+        this.orderId = order == null ? null : order.getId();
     }
 
     Order getOrder() {
@@ -52,10 +61,14 @@ class OrderLine implements PricedLine {
     }
 
     /**
-     * Id of the owning order, derived from the association, so it cannot drift from it. It is
-     * {@code null} for a line that has not been attached to an order yet.
+     * Id of the owning order. Loaded lines read it straight from the foreign key column; for a line
+     * that was just attached to a not yet persisted order it falls back to the association, so it
+     * cannot drift from it. It is {@code null} for a line that has no order yet.
      */
     Long getOrderId() {
+        if (orderId != null) {
+            return orderId;
+        }
         return order == null ? null : order.getId();
     }
 
