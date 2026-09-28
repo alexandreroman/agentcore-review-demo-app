@@ -42,7 +42,7 @@ class CustomerController {
     @GetMapping("/search")
     List<CustomerSummary> searchCustomers(@RequestParam String q, @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size) {
-        var byName = pageRequest(page, size, Sort.by(Sort.Direction.ASC, "name", "id"));
+        var byNamePage = validatedPageRequest(page, size, Sort.by(Sort.Direction.ASC, "name", "id"));
         var term = q.strip();
         if (term.length() < MIN_SEARCH_TERM_LENGTH) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
@@ -56,7 +56,7 @@ class CustomerController {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
                     "page * size must be below " + MAX_SEARCH_RESULT_WINDOW + "; refine q instead");
         }
-        return customerRepository.findByNameStartingWithIgnoreCaseOrEmailIgnoreCase(term, term, byName).stream()
+        return customerRepository.findByNameStartingWithIgnoreCaseOrEmailIgnoreCase(term, term, byNamePage).stream()
                 .map(CustomerSummary::from)
                 .toList();
     }
@@ -64,8 +64,8 @@ class CustomerController {
     @GetMapping("/{customerId}/orders")
     List<OrderSummary> customerOrders(@PathVariable long customerId, @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size) {
-        var newestFirst = pageRequest(page, size, Sort.by(Sort.Direction.DESC, "createdAt", "id"));
-        var orders = orderRepository.findByCustomerId(customerId, newestFirst);
+        var newestFirstPage = validatedPageRequest(page, size, Sort.by(Sort.Direction.DESC, "createdAt", "id"));
+        var orders = orderRepository.findByCustomerId(customerId, newestFirstPage);
         if (orders.isEmpty()) {
             return List.of();
         }
@@ -77,7 +77,10 @@ class CustomerController {
                 .toList();
     }
 
-    private PageRequest pageRequest(int page, int size, Sort sort) {
+    /**
+     * Validates the paging parameters, rejecting them with a 400 before building the page request.
+     */
+    private PageRequest validatedPageRequest(int page, int size, Sort sort) {
         if (size < MIN_PAGE_SIZE || size > MAX_PAGE_SIZE) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
                     "size must be between " + MIN_PAGE_SIZE + " and " + MAX_PAGE_SIZE);
