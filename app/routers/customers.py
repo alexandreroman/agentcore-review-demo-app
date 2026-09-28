@@ -2,9 +2,10 @@ from typing import Annotated
 
 from fastapi import APIRouter, Query
 from sqlalchemy import or_, select
+from sqlalchemy.orm import selectinload
 
 from app.database import SessionDep
-from app.models import Customer, Order, OrderLine
+from app.models import Customer, Order
 from app.pricing import order_total
 from app.schemas import CustomerOut, OrderSummary
 
@@ -32,19 +33,17 @@ def customer_orders(session: SessionDep, customer_id: int, limit: Limit = 20, of
     orders = session.scalars(
         select(Order)
         .where(Order.customer_id == customer_id)
+        .options(selectinload(Order.lines))
         .order_by(Order.created_at.desc(), Order.id.desc())
         .limit(limit)
         .offset(offset)
     ).all()
-    history = []
-    for order in orders:
-        lines = session.scalars(select(OrderLine).where(OrderLine.order_id == order.id)).all()
-        history.append(
-            OrderSummary(
-                id=order.id,
-                created_at=order.created_at,
-                line_count=len(lines),
-                total_cents=order_total(lines),
-            )
+    return [
+        OrderSummary(
+            id=order.id,
+            created_at=order.created_at,
+            line_count=len(order.lines),
+            total_cents=order_total(order.lines),
         )
-    return history
+        for order in orders
+    ]
