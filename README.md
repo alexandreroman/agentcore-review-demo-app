@@ -28,3 +28,16 @@ curl -X POST http://localhost:8080/orders \
 ```bash
 ./mvnw test
 ```
+
+## Demo references
+
+| Reference | Role |
+|---|---|
+| `baseline` (tag) | State of `main` at the start of every demo |
+| `scenario/customer-search` (tag) | The "Add customer search & order history" change |
+| `feature/customer-search` (branch) | Opened as a pull request during the demo |
+| `dev/customer-search` (branch) | Same change, reviewed by a local development worker |
+
+The **Reset demo** workflow (Actions tab, "Run workflow") closes the open
+pull requests, moves `main` back to `baseline` and recreates both branches
+from the scenario tag. Tags never move.
