@@ -1,8 +1,8 @@
 from fastapi import APIRouter, HTTPException
-from sqlalchemy import select, text
+from sqlalchemy import or_, select
 
 from app.database import SessionDep
-from app.models import Order, OrderLine
+from app.models import Customer, Order, OrderLine
 from app.pricing import order_total
 from app.schemas import CustomerOut, OrderSummary
 
@@ -15,13 +15,15 @@ def search_customers(session: SessionDep, q: str, limit: int = 20, offset: int =
         raise HTTPException(status_code=422, detail="limit must be between 1 and 100")
     if offset < 0:
         raise HTTPException(status_code=422, detail="offset must not be negative")
-    sql = (
-        "SELECT id, name, email FROM customers "
-        f"WHERE name LIKE '%{q}%' OR email LIKE '%{q}%' "
-        f"ORDER BY name LIMIT {limit} OFFSET {offset}"
-    )
-    rows = session.execute(text(sql)).all()
-    return [CustomerOut(id=row.id, name=row.name, email=row.email) for row in rows]
+    pattern = f"%{q}%"
+    customers = session.scalars(
+        select(Customer)
+        .where(or_(Customer.name.like(pattern), Customer.email.like(pattern)))
+        .order_by(Customer.name)
+        .limit(limit)
+        .offset(offset)
+    ).all()
+    return [CustomerOut(id=customer.id, name=customer.name, email=customer.email) for customer in customers]
 
 
 @router.get("/{customer_id}/orders")
