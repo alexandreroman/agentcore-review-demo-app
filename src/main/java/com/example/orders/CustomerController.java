@@ -18,6 +18,9 @@ import org.springframework.web.server.ResponseStatusException;
 @RequestMapping("/customers")
 class CustomerController {
 
+    private static final int MIN_SEARCH_TERM_LENGTH = 2;
+    private static final int MAX_SEARCH_RESULT_WINDOW = 1000;
+
     private final CustomerRepository customerRepository;
     private final OrderRepository orderRepository;
     private final OrderLineRepository orderLineRepository;
@@ -38,8 +41,17 @@ class CustomerController {
         if (page < 0) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "page must not be negative");
         }
+        var term = q == null ? "" : q.strip();
+        if (term.length() < MIN_SEARCH_TERM_LENGTH) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "q must be at least " + MIN_SEARCH_TERM_LENGTH + " characters");
+        }
+        if ((long) page * size >= MAX_SEARCH_RESULT_WINDOW) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "page * size must be below " + MAX_SEARCH_RESULT_WINDOW + "; refine q instead");
+        }
         var byName = Sort.by(Sort.Direction.ASC, "name", "id");
-        var customers = customerRepository.findByNameContainingIgnoreCaseOrEmailContainingIgnoreCase(q, q,
+        var customers = customerRepository.findByNameContainingIgnoreCaseOrEmailContainingIgnoreCase(term, term,
                 PageRequest.of(page, size, byName));
         var summaries = new ArrayList<CustomerSummary>();
         for (var customer : customers) {

@@ -30,7 +30,10 @@ curl 'http://localhost:8080/customers/1/orders?page=0&size=20'
 Both customer endpoints are paged: `page` defaults to `0` and must not be
 negative, `size` defaults to `20` and must be between `1` and `100`. Values
 outside those ranges are rejected with `400 Bad Request`. `q` is required and
-matches customer names and email addresses.
+matches customer names and email addresses; it is trimmed and must contain at
+least 2 characters, so blank or single-character searches are rejected. The
+search is also limited to the first 1000 results (`page * size` must stay below
+`1000`) so the customer list cannot be walked page by page.
 
 ## Test it
 
