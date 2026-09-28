@@ -21,7 +21,16 @@ curl http://localhost:8080/orders/1
 curl -X POST http://localhost:8080/orders \
   -H 'Content-Type: application/json' \
   -d '{"customerId": 1, "lines": [{"product": "Notebook", "quantity": 2, "unitPriceCents": 450}]}'
+
+curl 'http://localhost:8080/customers/search?q=ada&page=0&size=20'
+
+curl 'http://localhost:8080/customers/1/orders?page=0&size=20'
 ```
+
+Both customer endpoints are paged: `page` defaults to `0` and must not be
+negative, `size` defaults to `20` and must be between `1` and `100`. Values
+outside those ranges are rejected with `400 Bad Request`. `q` is required and
+matches customer names and email addresses.
 
 ## Test it
 
