@@ -2,6 +2,7 @@ package com.example.orders;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.stream.Collectors;
 
 import jakarta.validation.constraints.Size;
 
@@ -62,9 +63,16 @@ class CustomerController {
         }
         var newestFirst = Sort.by(Sort.Direction.DESC, "createdAt", "id");
         var orders = orderRepository.findByCustomerId(customerId, PageRequest.of(page, size, newestFirst));
-        var history = new ArrayList<OrderSummary>();
+        if (orders.isEmpty()) {
+            return List.of();
+        }
+        var orderIds = orders.stream().map(Order::getId).toList();
+        // One batch query for the whole page, instead of one query per order.
+        var linesByOrderId = orderLineRepository.findByOrderIdIn(orderIds).stream()
+                .collect(Collectors.groupingBy(line -> line.getOrder().getId()));
+        var history = new ArrayList<OrderSummary>(orders.size());
         for (var order : orders) {
-            var lines = orderLineRepository.findByOrderId(order.getId());
+            var lines = linesByOrderId.getOrDefault(order.getId(), List.<OrderLine>of());
             history.add(new OrderSummary(order.getId(), order.getCreatedAt(), lines.size(), Pricing.orderTotal(lines)));
         }
         return history;
