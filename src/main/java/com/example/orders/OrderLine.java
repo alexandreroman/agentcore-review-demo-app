@@ -23,14 +23,6 @@ class OrderLine implements PricedLine {
     @JoinColumn(name = "order_id")
     private Order order;
 
-    /**
-     * Read-only mapping of the {@code order_id} foreign key column. The association above owns the
-     * column, so this field is never written; it is loaded with the row and lets callers read the
-     * owning order id without going through the lazy association.
-     */
-    @Column(name = "order_id", insertable = false, updatable = false)
-    private Long orderId;
-
     @Column(nullable = false)
     private String product;
 
@@ -51,16 +43,20 @@ class OrderLine implements PricedLine {
         this.order = order;
     }
 
+    Order getOrder() {
+        return order;
+    }
+
     Long getId() {
         return id;
     }
 
     /**
-     * Id of the owning order, read from the foreign key column of this row, so it never initializes
-     * the lazy association. It is only populated for lines loaded from the database.
+     * Id of the owning order, derived from the association, so it cannot drift from it. It is
+     * {@code null} for a line that has not been attached to an order yet.
      */
     Long getOrderId() {
-        return orderId;
+        return order == null ? null : order.getId();
     }
 
     String getProduct() {

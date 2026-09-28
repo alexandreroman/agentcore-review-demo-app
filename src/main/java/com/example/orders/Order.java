@@ -20,7 +20,7 @@ import jakarta.persistence.Table;
 import org.hibernate.annotations.CreationTimestamp;
 
 @Entity
-@Table(name = "orders", indexes = @Index(columnList = "customer_id"))
+@Table(name = "orders", indexes = @Index(columnList = "customer_id, created_at"))
 class Order {
 
     @Id
