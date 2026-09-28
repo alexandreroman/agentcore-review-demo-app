@@ -13,11 +13,13 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.server.ResponseStatusException;
 
+import jakarta.servlet.http.HttpServletRequest;
+
 @RestController
 @RequestMapping("/customers")
 class CustomerController {
 
-    private static final int MIN_SEARCH_TERM_LENGTH = 2;
+    private static final int MIN_SEARCH_TERM_LENGTH = 3;
     private static final int MAX_SEARCH_TERM_LENGTH = 100;
     private static final int MAX_SEARCH_RESULT_WINDOW = 1000;
     private static final int MIN_PAGE_SIZE = 1;
@@ -26,22 +28,31 @@ class CustomerController {
     private final CustomerRepository customerRepository;
     private final OrderRepository orderRepository;
     private final OrderLineRepository orderLineRepository;
+    private final CustomerSearchRateLimiter searchRateLimiter;
 
     CustomerController(CustomerRepository customerRepository, OrderRepository orderRepository,
-            OrderLineRepository orderLineRepository) {
+            OrderLineRepository orderLineRepository, CustomerSearchRateLimiter searchRateLimiter) {
         this.customerRepository = customerRepository;
         this.orderRepository = orderRepository;
         this.orderLineRepository = orderLineRepository;
+        this.searchRateLimiter = searchRateLimiter;
     }
 
     /**
-     * Looks customers up by the start of their name or by their full email address. The summaries
-     * never contain the email address, and an email only matches when it is spelled out completely,
-     * so the endpoint cannot be used to harvest addresses.
+     * Looks customers up by the start of their name. Email addresses are neither returned nor
+     * matched, so the endpoint cannot confirm that an address belongs to a customer. The minimum
+     * term length, the result window and the per-caller rate limit make sweeping the customer list
+     * impractical, but they are not a substitute for authentication: this service has none, so it
+     * has to run behind an authenticating gateway.
      */
     @GetMapping("/search")
     List<CustomerSummary> searchCustomers(@RequestParam String q, @RequestParam(defaultValue = "0") int page,
-            @RequestParam(defaultValue = "20") int size) {
+            @RequestParam(defaultValue = "20") int size, HttpServletRequest request) {
+        if (!searchRateLimiter.tryAcquire(callerKey(request))) {
+            throw new ResponseStatusException(HttpStatus.TOO_MANY_REQUESTS,
+                    "too many searches; at most " + CustomerSearchRateLimiter.MAX_SEARCHES_PER_WINDOW
+                            + " are allowed per " + CustomerSearchRateLimiter.WINDOW.toMinutes() + " minute(s)");
+        }
         var byNamePage = validatedPageRequest(page, size, Sort.by(Sort.Direction.ASC, "name", "id"));
         var term = q.strip();
         if (term.length() < MIN_SEARCH_TERM_LENGTH) {
@@ -56,7 +67,7 @@ class CustomerController {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
                     "page * size must be below " + MAX_SEARCH_RESULT_WINDOW + "; refine q instead");
         }
-        return customerRepository.findByNameStartingWithIgnoreCaseOrEmailIgnoreCase(term, term, byNamePage).stream()
+        return customerRepository.findByNameStartingWithIgnoreCase(term, byNamePage).stream()
                 .map(CustomerSummary::from)
                 .toList();
     }
@@ -75,6 +86,15 @@ class CustomerController {
         return orders.stream()
                 .map(order -> OrderSummary.from(order, linesByOrder.getOrDefault(order.getId(), List.of())))
                 .toList();
+    }
+
+    /**
+     * Identifies the caller by its remote address; forwarded headers are not trusted because clients
+     * can spoof them.
+     */
+    private static String callerKey(HttpServletRequest request) {
+        var remoteAddress = request.getRemoteAddr();
+        return remoteAddress == null || remoteAddress.isBlank() ? "unknown" : remoteAddress;
     }
 
     /**

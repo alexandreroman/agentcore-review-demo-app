@@ -30,12 +30,17 @@ curl 'http://localhost:8080/customers/1/orders?page=0&size=20'
 Both customer endpoints are paged: `page` defaults to `0` and must not be
 negative, `size` defaults to `20` and must be between `1` and `100`. Values
 outside those ranges are rejected with `400 Bad Request`. `q` is required and
-matches the start of a customer name or a complete email address; it is trimmed
-and must contain between 2 and 100 characters, so blank, single-character and
-oversized searches are rejected. The search never returns email addresses, only
-the customer id and name, and it is limited to the first 1000 results
-(`page * size` must stay below `1000`) so the customer list cannot be walked
-page by page.
+matches the start of a customer name; it is trimmed and must contain between 3
+and 100 characters, so blank, short and oversized searches are rejected. Email
+addresses are neither returned nor matched, so the search cannot confirm that a
+guessed address belongs to a customer. Searches are limited to the first 1000
+results (`page * size` must stay below `1000`) and each caller may run at most
+20 searches per minute; further searches are rejected with `429 Too Many
+Requests`.
+
+Those limits only make bulk harvesting of the customer list inconvenient, they
+are not access control: the demo service has no authentication at all, so put it
+behind an authenticating gateway before exposing it to untrusted callers.
 
 ## Test it
 

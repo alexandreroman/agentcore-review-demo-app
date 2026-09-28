@@ -29,12 +29,13 @@ class CustomerControllerTest {
     private final OrderLineRepository orderLineRepository = mock(OrderLineRepository.class);
 
     private final MockMvc mockMvc = MockMvcBuilders
-            .standaloneSetup(new CustomerController(customerRepository, orderRepository, orderLineRepository))
+            .standaloneSetup(new CustomerController(customerRepository, orderRepository, orderLineRepository,
+                    new CustomerSearchRateLimiter()))
             .build();
 
     @Test
     void searchUsesDefaultPagingAndNeverReturnsTheEmailAddress() throws Exception {
-        when(customerRepository.findByNameStartingWithIgnoreCaseOrEmailIgnoreCase(any(), any(), any()))
+        when(customerRepository.findByNameStartingWithIgnoreCase(any(), any()))
                 .thenReturn(List.of(customer(7L, "Ada Lovelace", "ada@example.com")));
 
         mockMvc.perform(get("/customers/search").param("q", "ada"))
@@ -44,23 +45,22 @@ class CustomerControllerTest {
                 .andExpect(jsonPath("$[0].email").doesNotExist());
 
         var pageable = ArgumentCaptor.forClass(Pageable.class);
-        verify(customerRepository).findByNameStartingWithIgnoreCaseOrEmailIgnoreCase(eq("ada"), eq("ada"),
-                pageable.capture());
+        verify(customerRepository).findByNameStartingWithIgnoreCase(eq("ada"), pageable.capture());
         assertEquals(0, pageable.getValue().getPageNumber());
         assertEquals(20, pageable.getValue().getPageSize());
     }
 
     @Test
     void searchTrimsTheTerm() throws Exception {
-        mockMvc.perform(get("/customers/search").param("q", "  ad  "))
+        mockMvc.perform(get("/customers/search").param("q", "  ada  "))
                 .andExpect(status().isOk());
 
-        verify(customerRepository).findByNameStartingWithIgnoreCaseOrEmailIgnoreCase(eq("ad"), eq("ad"), any());
+        verify(customerRepository).findByNameStartingWithIgnoreCase(eq("ada"), any());
     }
 
     @Test
     void searchRejectsTermsThatAreTooShortOrTooLong() throws Exception {
-        mockMvc.perform(get("/customers/search").param("q", " a "))
+        mockMvc.perform(get("/customers/search").param("q", " ad "))
                 .andExpect(status().isBadRequest());
         mockMvc.perform(get("/customers/search").param("q", "a".repeat(101)))
                 .andExpect(status().isBadRequest());
@@ -92,6 +92,17 @@ class CustomerControllerTest {
                 .andExpect(status().isOk());
         mockMvc.perform(get("/customers/search").param("q", "ada").param("page", "50").param("size", "20"))
                 .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void searchRejectsCallersThatExceedTheRateLimit() throws Exception {
+        for (var i = 0; i < CustomerSearchRateLimiter.MAX_SEARCHES_PER_WINDOW; i++) {
+            mockMvc.perform(get("/customers/search").param("q", "ada"))
+                    .andExpect(status().isOk());
+        }
+
+        mockMvc.perform(get("/customers/search").param("q", "ada"))
+                .andExpect(status().isTooManyRequests());
     }
 
     @Test
