@@ -15,6 +15,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import java.security.Principal;
 import java.time.Instant;
 import java.util.List;
+import java.util.Optional;
 
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -141,11 +142,12 @@ class CustomerControllerTest {
     @Test
     void orderHistoryReportsLineCountAndTotal() throws Exception {
         var order = order(5L);
+        ownedBy(1L, "ada@example.com");
         when(orderRepository.findByCustomerId(eq(1L), any())).thenReturn(List.of(order));
         when(orderLineRepository.findByOrderIdIn(List.of(5L)))
                 .thenReturn(List.of(line(order, "Notebook", 2, 450), line(order, "Pen", 10, 120)));
 
-        mockMvc.perform(get("/customers/1/orders"))
+        mockMvc.perform(orderHistoryOf(1L, "ada@example.com"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$[0].id").value(5))
                 .andExpect(jsonPath("$[0].lineCount").value(2))
@@ -154,9 +156,10 @@ class CustomerControllerTest {
 
     @Test
     void orderHistoryWithoutOrdersDoesNotQueryLines() throws Exception {
+        ownedBy(9L, "grace@example.com");
         when(orderRepository.findByCustomerId(eq(9L), any())).thenReturn(List.of());
 
-        mockMvc.perform(get("/customers/9/orders"))
+        mockMvc.perform(orderHistoryOf(9L, "grace@example.com"))
                 .andExpect(status().isOk())
                 .andExpect(content().json("[]"));
 
@@ -165,14 +168,52 @@ class CustomerControllerTest {
 
     @Test
     void orderHistoryRejectsPagingOutsideTheAllowedBounds() throws Exception {
-        mockMvc.perform(get("/customers/1/orders").param("size", "0"))
+        ownedBy(1L, "ada@example.com");
+
+        mockMvc.perform(orderHistoryOf(1L, "ada@example.com").param("size", "0"))
                 .andExpect(status().isBadRequest());
-        mockMvc.perform(get("/customers/1/orders").param("size", "101"))
+        mockMvc.perform(orderHistoryOf(1L, "ada@example.com").param("size", "101"))
                 .andExpect(status().isBadRequest());
-        mockMvc.perform(get("/customers/1/orders").param("page", "-1"))
+        mockMvc.perform(orderHistoryOf(1L, "ada@example.com").param("page", "-1"))
                 .andExpect(status().isBadRequest());
 
         verifyNoInteractions(orderRepository);
+    }
+
+    @Test
+    void orderHistoryRejectsCallersWithoutAPrincipal() throws Exception {
+        mockMvc.perform(get("/customers/1/orders"))
+                .andExpect(status().isUnauthorized());
+
+        verifyNoInteractions(orderRepository, orderLineRepository);
+    }
+
+    @Test
+    void orderHistoryHidesTheHistoryOfAnotherCustomer() throws Exception {
+        ownedBy(1L, "ada@example.com");
+
+        mockMvc.perform(orderHistoryOf(1L, "grace@example.com"))
+                .andExpect(status().isNotFound());
+
+        verifyNoInteractions(orderRepository, orderLineRepository);
+    }
+
+    @Test
+    void orderHistoryOfAnUnknownCustomerIsNotFound() throws Exception {
+        mockMvc.perform(orderHistoryOf(42L, "ada@example.com"))
+                .andExpect(status().isNotFound());
+
+        verifyNoInteractions(orderRepository, orderLineRepository);
+    }
+
+    private void ownedBy(long customerId, String email) {
+        when(customerRepository.findById(customerId))
+                .thenReturn(Optional.of(customer(customerId, "Ada Lovelace", email)));
+    }
+
+    private static MockHttpServletRequestBuilder orderHistoryOf(long customerId, String principalName) {
+        Principal owner = () -> principalName;
+        return get("/customers/" + customerId + "/orders").principal(owner);
     }
 
     private static MockHttpServletRequestBuilder searchFrom(String remoteAddress) {

@@ -24,6 +24,8 @@ curl -X POST http://localhost:8080/orders \
 
 curl 'http://localhost:8080/customers/search?q=ada&page=0&size=20'
 
+# Answers 401 without a gateway: the order history is only served to the
+# customer it belongs to.
 curl 'http://localhost:8080/customers/1/orders?page=0&size=20'
 ```
 
@@ -40,17 +42,25 @@ Requests`.
 
 A caller is identified by the principal the gateway propagates, or by its
 network address (IPv6 callers are counted per `/64`) when there is none. The
-address is taken from the forwarding headers of the proxy
-(`server.forward-headers-strategy=framework`), so the gateway has to strip
-client-supplied `X-Forwarded-*`/`Forwarded` headers; otherwise callers can pick
-their own key. The counters are kept in the memory of one instance, so a
-horizontally scaled deployment multiplies the effective limit by the number of
-instances and should enforce the limit at the gateway (or share the counters)
-instead.
+address is only taken from forwarding headers when the immediate peer of the
+request is a trusted proxy (`server.forward-headers-strategy=native` plus
+`server.tomcat.remoteip.internal-proxies`, set through the `TRUSTED_PROXIES`
+regular expression); headers from any other peer are ignored, so callers cannot
+spoof `X-Forwarded-For` to obtain an unlimited search budget. The counters are
+kept in the memory of one instance, so a horizontally scaled deployment
+multiplies the effective limit by the number of instances and should enforce the
+limit at the gateway (or share the counters) instead.
 
-Those limits only make bulk harvesting of the customer list inconvenient, they
-are not access control: the demo service has no authentication at all, so put it
-behind an authenticating gateway before exposing it to untrusted callers.
+The order history is personal data, so it is only served to the customer it
+belongs to: the gateway has to authenticate the caller and propagate its
+principal (the customer's email address). Requests without a principal are
+rejected with `401 Unauthorized` and requests for another customer's id with
+`404 Not Found`, so the sequential customer ids cannot be walked to harvest
+order histories.
+
+The search limits only make bulk harvesting of the customer list inconvenient,
+they are not access control: the demo service has no authentication at all, so
+put it behind an authenticating gateway before exposing it to untrusted callers.
 
 ## Test it
 

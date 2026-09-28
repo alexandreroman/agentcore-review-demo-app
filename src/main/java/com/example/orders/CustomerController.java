@@ -78,9 +78,14 @@ class CustomerController {
                 .toList();
     }
 
+    /**
+     * Returns the order history of one customer. The history is personal data, so it is only served
+     * to the customer it belongs to instead of to everybody who can guess a customer id.
+     */
     @GetMapping("/{customerId}/orders")
     List<OrderSummary> customerOrders(@PathVariable long customerId, @RequestParam(defaultValue = "0") int page,
-            @RequestParam(defaultValue = "20") int size) {
+            @RequestParam(defaultValue = "20") int size, HttpServletRequest request) {
+        requireOwnOrderHistory(customerId, request);
         var newestFirstPage = validatedPageRequest(page, size, Sort.by(Sort.Direction.DESC, "createdAt", "id"));
         var orders = orderRepository.findByCustomerId(customerId, newestFirstPage);
         if (orders.isEmpty()) {
@@ -95,11 +100,34 @@ class CustomerController {
     }
 
     /**
+     * Checks that the caller is the customer whose order history it asks for. The service has no
+     * authentication of its own, so the gateway in front of it has to authenticate the caller and
+     * propagate its principal (the customer's email address): requests without a principal are
+     * rejected with 401 and requests for somebody else's customer id with 404, so the sequential
+     * customer ids cannot be walked to harvest order histories.
+     */
+    private void requireOwnOrderHistory(long customerId, HttpServletRequest request) {
+        var principal = request.getUserPrincipal();
+        if (principal == null || principal.getName() == null || principal.getName().isBlank()) {
+            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED,
+                    "order history is only served to the customer it belongs to");
+        }
+        var ownsHistory = customerRepository.findById(customerId)
+                .map(Customer::getEmail)
+                .filter(email -> email != null && email.equalsIgnoreCase(principal.getName()))
+                .isPresent();
+        if (!ownsHistory) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "no order history for customer " + customerId);
+        }
+    }
+
+    /**
      * Identifies the caller by its authenticated principal when the gateway propagates one, and by
      * its remote address otherwise. Only trusted sources are used as the key: forwarded headers are
-     * honoured through {@code server.forward-headers-strategy}, so the gateway (which has to strip
-     * client-supplied forwarding headers) decides which address is seen here instead of every
-     * request collapsing onto the proxy's own address.
+     * honoured through {@code server.forward-headers-strategy=native} and therefore only when the
+     * request's immediate peer is one of the trusted proxies configured in
+     * {@code server.tomcat.remoteip.internal-proxies}, so a client cannot spoof its own address
+     * instead of every request collapsing onto the proxy's own address.
      */
     private static String callerKey(HttpServletRequest request) {
         var principal = request.getUserPrincipal();
