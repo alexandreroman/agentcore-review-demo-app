@@ -6,7 +6,6 @@ import java.util.List;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
 import org.springframework.http.HttpStatus;
-import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -18,13 +17,13 @@ import org.springframework.web.server.ResponseStatusException;
 @RequestMapping("/customers")
 class CustomerController {
 
-    private final JdbcClient jdbcClient;
+    private final CustomerRepository customerRepository;
     private final OrderRepository orderRepository;
     private final OrderLineRepository orderLineRepository;
 
-    CustomerController(JdbcClient jdbcClient, OrderRepository orderRepository,
+    CustomerController(CustomerRepository customerRepository, OrderRepository orderRepository,
             OrderLineRepository orderLineRepository) {
-        this.jdbcClient = jdbcClient;
+        this.customerRepository = customerRepository;
         this.orderRepository = orderRepository;
         this.orderLineRepository = orderLineRepository;
     }
@@ -38,19 +37,14 @@ class CustomerController {
         if (page < 0) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "page must not be negative");
         }
-        var sql = "SELECT id, name, email FROM customers "
-                + "WHERE name LIKE :pattern ESCAPE '!' OR email LIKE :pattern ESCAPE '!' "
-                + "ORDER BY name LIMIT :limit OFFSET :offset";
-        return jdbcClient.sql(sql)
-                .param("pattern", "%" + escapeLike(q) + "%")
-                .param("limit", size)
-                .param("offset", (long) page * size)
-                .query(CustomerSummary.class)
-                .list();
-    }
-
-    private static String escapeLike(String value) {
-        return value.replace("!", "!!").replace("%", "!%").replace("_", "!_");
+        var byName = Sort.by(Sort.Direction.ASC, "name", "id");
+        var customers = customerRepository.findByNameContainingIgnoreCaseOrEmailContainingIgnoreCase(q, q,
+                PageRequest.of(page, size, byName));
+        var summaries = new ArrayList<CustomerSummary>();
+        for (var customer : customers) {
+            summaries.add(new CustomerSummary(customer.getId(), customer.getName(), customer.getEmail()));
+        }
+        return summaries;
     }
 
     @GetMapping("/{customerId}/orders")
