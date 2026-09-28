@@ -47,6 +47,13 @@ class OrderLine implements PricedLine {
         return id;
     }
 
+    /**
+     * Id of the owning order, read from the foreign key without initializing the lazy association.
+     */
+    Long getOrderId() {
+        return order == null ? null : order.getId();
+    }
+
     String getProduct() {
         return product;
     }
