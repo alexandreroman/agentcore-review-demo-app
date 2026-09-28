@@ -3,6 +3,8 @@ package com.example.orders;
 import java.util.ArrayList;
 import java.util.List;
 
+import jakarta.validation.constraints.Size;
+
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
 import org.springframework.http.HttpStatus;
@@ -30,8 +32,8 @@ class CustomerController {
     }
 
     @GetMapping("/search")
-    List<CustomerSummary> searchCustomers(@RequestParam String q, @RequestParam(defaultValue = "0") int page,
-            @RequestParam(defaultValue = "20") int size) {
+    List<CustomerSummary> searchCustomers(@RequestParam @Size(max = 100) String q,
+            @RequestParam(defaultValue = "0") int page, @RequestParam(defaultValue = "20") int size) {
         if (size < 1 || size > 100) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "size must be between 1 and 100");
         }
@@ -39,9 +41,12 @@ class CustomerController {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "page must not be negative");
         }
         var sql = "SELECT id, name, email FROM customers "
-                + "WHERE name LIKE '%" + q + "%' OR email LIKE '%" + q + "%' "
-                + "ORDER BY name LIMIT " + size + " OFFSET " + page * size;
+                + "WHERE name LIKE :pattern OR email LIKE :pattern "
+                + "ORDER BY name LIMIT :limit OFFSET :offset";
         return jdbcClient.sql(sql)
+                .param("pattern", "%" + q + "%")
+                .param("limit", size)
+                .param("offset", (long) page * size)
                 .query(CustomerSummary.class)
                 .list();
     }
