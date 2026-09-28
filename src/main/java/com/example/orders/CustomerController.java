@@ -1,5 +1,8 @@
 package com.example.orders;
 
+import java.net.Inet6Address;
+import java.net.InetAddress;
+import java.net.UnknownHostException;
 import java.util.List;
 import java.util.stream.Collectors;
 
@@ -24,6 +27,9 @@ class CustomerController {
     private static final int MAX_SEARCH_RESULT_WINDOW = 1000;
     private static final int MIN_PAGE_SIZE = 1;
     private static final int MAX_PAGE_SIZE = 100;
+
+    /** Number of leading address bytes that identify the /64 network of an IPv6 caller. */
+    private static final int IPV6_PREFIX_BYTES = 8;
 
     private final CustomerRepository customerRepository;
     private final OrderRepository orderRepository;
@@ -89,12 +95,43 @@ class CustomerController {
     }
 
     /**
-     * Identifies the caller by its remote address; forwarded headers are not trusted because clients
-     * can spoof them.
+     * Identifies the caller by its authenticated principal when the gateway propagates one, and by
+     * its remote address otherwise. Only trusted sources are used as the key: forwarded headers are
+     * honoured through {@code server.forward-headers-strategy}, so the gateway (which has to strip
+     * client-supplied forwarding headers) decides which address is seen here instead of every
+     * request collapsing onto the proxy's own address.
      */
     private static String callerKey(HttpServletRequest request) {
+        var principal = request.getUserPrincipal();
+        if (principal != null && principal.getName() != null && !principal.getName().isBlank()) {
+            return "user:" + principal.getName();
+        }
         var remoteAddress = request.getRemoteAddr();
-        return remoteAddress == null || remoteAddress.isBlank() ? "unknown" : remoteAddress;
+        if (remoteAddress == null || remoteAddress.isBlank()) {
+            return "ip:unknown";
+        }
+        return "ip:" + networkOf(remoteAddress);
+    }
+
+    /**
+     * Groups IPv6 callers by their /64 network so that a single client cannot rotate through the
+     * addresses of its own prefix to obtain an unlimited budget. Other addresses are used as they
+     * are.
+     */
+    private static String networkOf(String remoteAddress) {
+        if (remoteAddress.indexOf(':') < 0) {
+            return remoteAddress;
+        }
+        try {
+            if (!(InetAddress.getByName(remoteAddress) instanceof Inet6Address address)) {
+                return remoteAddress;
+            }
+            var prefix = new byte[16];
+            System.arraycopy(address.getAddress(), 0, prefix, 0, IPV6_PREFIX_BYTES);
+            return InetAddress.getByAddress(prefix).getHostAddress() + "/64";
+        } catch (UnknownHostException e) {
+            return remoteAddress;
+        }
     }
 
     /**

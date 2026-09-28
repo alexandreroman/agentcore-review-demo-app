@@ -12,6 +12,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
+import java.security.Principal;
 import java.time.Instant;
 import java.util.List;
 
@@ -20,6 +21,7 @@ import org.mockito.ArgumentCaptor;
 import org.springframework.data.domain.Pageable;
 import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.request.MockHttpServletRequestBuilder;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 
 class CustomerControllerTest {
@@ -106,6 +108,37 @@ class CustomerControllerTest {
     }
 
     @Test
+    void searchCountsEachRemoteAddressSeparately() throws Exception {
+        for (var i = 0; i < CustomerSearchRateLimiter.MAX_SEARCHES_PER_WINDOW; i++) {
+            mockMvc.perform(searchFrom("203.0.113.7")).andExpect(status().isOk());
+        }
+
+        mockMvc.perform(searchFrom("203.0.113.7")).andExpect(status().isTooManyRequests());
+        mockMvc.perform(searchFrom("203.0.113.8")).andExpect(status().isOk());
+    }
+
+    @Test
+    void searchCountsAnIpv6CallerPerNetworkPrefix() throws Exception {
+        for (var i = 0; i < CustomerSearchRateLimiter.MAX_SEARCHES_PER_WINDOW; i++) {
+            mockMvc.perform(searchFrom("2001:db8::" + (i + 1))).andExpect(status().isOk());
+        }
+
+        mockMvc.perform(searchFrom("2001:db8::ff")).andExpect(status().isTooManyRequests());
+        mockMvc.perform(searchFrom("2001:db8:0:1::1")).andExpect(status().isOk());
+    }
+
+    @Test
+    void searchCountsAnAuthenticatedCallerAcrossItsAddresses() throws Exception {
+        Principal caller = () -> "ada";
+        for (var i = 0; i < CustomerSearchRateLimiter.MAX_SEARCHES_PER_WINDOW; i++) {
+            mockMvc.perform(searchFrom("203.0.113." + i).principal(caller)).andExpect(status().isOk());
+        }
+
+        mockMvc.perform(searchFrom("198.51.100.1").principal(caller)).andExpect(status().isTooManyRequests());
+        mockMvc.perform(searchFrom("198.51.100.1")).andExpect(status().isOk());
+    }
+
+    @Test
     void orderHistoryReportsLineCountAndTotal() throws Exception {
         var order = order(5L);
         when(orderRepository.findByCustomerId(eq(1L), any())).thenReturn(List.of(order));
@@ -140,6 +173,13 @@ class CustomerControllerTest {
                 .andExpect(status().isBadRequest());
 
         verifyNoInteractions(orderRepository);
+    }
+
+    private static MockHttpServletRequestBuilder searchFrom(String remoteAddress) {
+        return get("/customers/search").param("q", "ada").with(request -> {
+            request.setRemoteAddr(remoteAddress);
+            return request;
+        });
     }
 
     private static Customer customer(long id, String name, String email) {

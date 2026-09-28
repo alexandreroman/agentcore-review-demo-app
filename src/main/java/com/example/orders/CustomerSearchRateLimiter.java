@@ -13,6 +13,10 @@ import org.springframework.stereotype.Component;
  * sweeping the customers table with many cheap requests impractical, but it is no replacement for
  * authentication: the service itself has none, so it must be deployed behind an authenticating
  * gateway.
+ *
+ * <p>The counters live in the memory of one instance, so a horizontally scaled deployment multiplies
+ * the effective limit by the number of instances; such a deployment has to enforce the limit at the
+ * gateway or keep the counters in a shared store.
  */
 @Component
 class CustomerSearchRateLimiter {
