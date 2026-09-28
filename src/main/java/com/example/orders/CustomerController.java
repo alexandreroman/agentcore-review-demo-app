@@ -39,11 +39,18 @@ class CustomerController {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "page must not be negative");
         }
         var sql = "SELECT id, name, email FROM customers "
-                + "WHERE name LIKE '%" + q + "%' OR email LIKE '%" + q + "%' "
-                + "ORDER BY name LIMIT " + size + " OFFSET " + page * size;
+                + "WHERE name LIKE :pattern ESCAPE '!' OR email LIKE :pattern ESCAPE '!' "
+                + "ORDER BY name LIMIT :limit OFFSET :offset";
         return jdbcClient.sql(sql)
+                .param("pattern", "%" + escapeLike(q) + "%")
+                .param("limit", size)
+                .param("offset", (long) page * size)
                 .query(CustomerSummary.class)
                 .list();
+    }
+
+    private static String escapeLike(String value) {
+        return value.replace("!", "!!").replace("%", "!%").replace("_", "!_");
     }
 
     @GetMapping("/{customerId}/orders")
