@@ -1,4 +1,6 @@
-from fastapi import APIRouter, HTTPException
+from typing import Annotated
+
+from fastapi import APIRouter, Query
 from sqlalchemy import or_, select
 
 from app.database import SessionDep
@@ -8,13 +10,12 @@ from app.schemas import CustomerOut, OrderSummary
 
 router = APIRouter(prefix="/customers", tags=["customers"])
 
+Limit = Annotated[int, Query(ge=1, le=100)]
+Offset = Annotated[int, Query(ge=0)]
+
 
 @router.get("/search")
-def search_customers(session: SessionDep, q: str, limit: int = 20, offset: int = 0) -> list[CustomerOut]:
-    if limit < 1 or limit > 100:
-        raise HTTPException(status_code=422, detail="limit must be between 1 and 100")
-    if offset < 0:
-        raise HTTPException(status_code=422, detail="offset must not be negative")
+def search_customers(session: SessionDep, q: str, limit: Limit = 20, offset: Offset = 0) -> list[CustomerOut]:
     pattern = f"%{q}%"
     customers = session.scalars(
         select(Customer)
@@ -27,11 +28,7 @@ def search_customers(session: SessionDep, q: str, limit: int = 20, offset: int =
 
 
 @router.get("/{customer_id}/orders")
-def customer_orders(session: SessionDep, customer_id: int, limit: int = 20, offset: int = 0) -> list[OrderSummary]:
-    if limit < 1 or limit > 100:
-        raise HTTPException(status_code=422, detail="limit must be between 1 and 100")
-    if offset < 0:
-        raise HTTPException(status_code=422, detail="offset must not be negative")
+def customer_orders(session: SessionDep, customer_id: int, limit: Limit = 20, offset: Offset = 0) -> list[OrderSummary]:
     orders = session.scalars(
         select(Order)
         .where(Order.customer_id == customer_id)
