@@ -2,6 +2,7 @@ package com.example.orders;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.stream.Collectors;
 
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
@@ -60,9 +61,15 @@ class CustomerController {
         }
         var newestFirst = Sort.by(Sort.Direction.DESC, "createdAt", "id");
         var orders = orderRepository.findByCustomerId(customerId, PageRequest.of(page, size, newestFirst));
+        if (orders.isEmpty()) {
+            return List.of();
+        }
+        var orderIds = orders.stream().map(Order::getId).toList();
+        var linesByOrderId = orderLineRepository.findLineTotalsByOrderIdIn(orderIds).stream()
+                .collect(Collectors.groupingBy(OrderLineTotal::orderId));
         var history = new ArrayList<OrderSummary>();
         for (var order : orders) {
-            var lines = orderLineRepository.findByOrderId(order.getId());
+            var lines = linesByOrderId.getOrDefault(order.getId(), List.of());
             history.add(new OrderSummary(order.getId(), order.getCreatedAt(), lines.size(), Pricing.orderTotal(lines)));
         }
         return history;
