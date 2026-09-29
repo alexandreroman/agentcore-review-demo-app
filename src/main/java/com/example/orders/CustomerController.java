@@ -1,12 +1,11 @@
 package com.example.orders;
 
-import java.util.ArrayList;
 import java.util.List;
+import java.util.stream.Collectors;
 
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
 import org.springframework.http.HttpStatus;
-import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -18,13 +17,16 @@ import org.springframework.web.server.ResponseStatusException;
 @RequestMapping("/customers")
 class CustomerController {
 
-    private final JdbcClient jdbcClient;
+    private static final Sort BY_NAME = Sort.by("name");
+    private static final Sort NEWEST_FIRST = Sort.by(Sort.Direction.DESC, "createdAt", "id");
+
+    private final CustomerRepository customerRepository;
     private final OrderRepository orderRepository;
     private final OrderLineRepository orderLineRepository;
 
-    CustomerController(JdbcClient jdbcClient, OrderRepository orderRepository,
+    CustomerController(CustomerRepository customerRepository, OrderRepository orderRepository,
             OrderLineRepository orderLineRepository) {
-        this.jdbcClient = jdbcClient;
+        this.customerRepository = customerRepository;
         this.orderRepository = orderRepository;
         this.orderLineRepository = orderLineRepository;
     }
@@ -32,36 +34,41 @@ class CustomerController {
     @GetMapping("/search")
     List<CustomerSummary> searchCustomers(@RequestParam String q, @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size) {
-        if (size < 1 || size > 100) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "size must be between 1 and 100");
-        }
-        if (page < 0) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "page must not be negative");
-        }
-        var sql = "SELECT id, name, email FROM customers "
-                + "WHERE name LIKE '%" + q + "%' OR email LIKE '%" + q + "%' "
-                + "ORDER BY name LIMIT " + size + " OFFSET " + page * size;
-        return jdbcClient.sql(sql)
-                .query(CustomerSummary.class)
-                .list();
+        return customerRepository
+                .findByNameContainingIgnoreCaseOrEmailContainingIgnoreCase(q, q, pageRequest(page, size, BY_NAME))
+                .stream()
+                .map(CustomerSummary::from)
+                .toList();
     }
 
     @GetMapping("/{customerId}/orders")
     List<OrderSummary> customerOrders(@PathVariable long customerId, @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size) {
+        var orders = orderRepository.findByCustomerId(customerId, pageRequest(page, size, NEWEST_FIRST));
+        if (orders.isEmpty()) {
+            return List.of();
+        }
+        var orderIds = orders.stream()
+                .map(Order::getId)
+                .toList();
+        var linesByOrderId = orderLineRepository.findByOrderIdIn(orderIds).stream()
+                .collect(Collectors.groupingBy(line -> line.getOrder().getId()));
+        return orders.stream()
+                .map(order -> {
+                    List<OrderLine> lines = linesByOrderId.getOrDefault(order.getId(), List.of());
+                    return new OrderSummary(order.getId(), order.getCreatedAt(), lines.size(),
+                            Pricing.orderTotal(lines));
+                })
+                .toList();
+    }
+
+    private static PageRequest pageRequest(int page, int size, Sort sort) {
         if (size < 1 || size > 100) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "size must be between 1 and 100");
         }
         if (page < 0) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "page must not be negative");
         }
-        var newestFirst = Sort.by(Sort.Direction.DESC, "createdAt", "id");
-        var orders = orderRepository.findByCustomerId(customerId, PageRequest.of(page, size, newestFirst));
-        var history = new ArrayList<OrderSummary>();
-        for (var order : orders) {
-            var lines = orderLineRepository.findByOrderId(order.getId());
-            history.add(new OrderSummary(order.getId(), order.getCreatedAt(), lines.size(), Pricing.orderTotal(lines)));
-        }
-        return history;
+        return PageRequest.of(page, size, sort);
     }
 }
