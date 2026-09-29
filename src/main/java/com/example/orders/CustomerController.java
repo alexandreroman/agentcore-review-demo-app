@@ -2,6 +2,8 @@ package com.example.orders;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
 
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
@@ -18,6 +20,8 @@ import org.springframework.web.server.ResponseStatusException;
 @RequestMapping("/customers")
 class CustomerController {
 
+    private static final int MAX_PAGE_SIZE = 100;
+
     private final JdbcClient jdbcClient;
     private final OrderRepository orderRepository;
     private final OrderLineRepository orderLineRepository;
@@ -32,16 +36,14 @@ class CustomerController {
     @GetMapping("/search")
     List<CustomerSummary> searchCustomers(@RequestParam String q, @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size) {
-        if (size < 1 || size > 100) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "size must be between 1 and 100");
-        }
-        if (page < 0) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "page must not be negative");
-        }
+        validatePaging(page, size);
         var sql = "SELECT id, name, email FROM customers "
-                + "WHERE name LIKE '%" + q + "%' OR email LIKE '%" + q + "%' "
-                + "ORDER BY name LIMIT " + size + " OFFSET " + page * size;
+                + "WHERE name LIKE :pattern OR email LIKE :pattern "
+                + "ORDER BY name LIMIT :limit OFFSET :offset";
         return jdbcClient.sql(sql)
+                .param("pattern", "%" + q + "%")
+                .param("limit", size)
+                .param("offset", (long) page * size)
                 .query(CustomerSummary.class)
                 .list();
     }
@@ -49,19 +51,38 @@ class CustomerController {
     @GetMapping("/{customerId}/orders")
     List<OrderSummary> customerOrders(@PathVariable long customerId, @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size) {
-        if (size < 1 || size > 100) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "size must be between 1 and 100");
+        validatePaging(page, size);
+        var newestFirst = Sort.by(Sort.Direction.DESC, "createdAt", "id");
+        var orders = orderRepository.findByCustomerId(customerId, PageRequest.of(page, size, newestFirst));
+        var linesByOrderId = linesByOrderId(orders);
+        var history = new ArrayList<OrderSummary>();
+        for (var order : orders) {
+            var lines = linesByOrderId.getOrDefault(order.getId(), List.of());
+            history.add(new OrderSummary(order.getId(), order.getCreatedAt(), lines.size(), Pricing.orderTotal(lines)));
+        }
+        return history;
+    }
+
+    /**
+     * Loads the lines of a whole page of orders with a single statement, grouped by order id.
+     */
+    private Map<Long, List<OrderLine>> linesByOrderId(List<Order> orders) {
+        var orderIds = orders.stream()
+                .map(Order::getId)
+                .toList();
+        if (orderIds.isEmpty()) {
+            return Map.of();
+        }
+        return orderLineRepository.findByOrderIdIn(orderIds).stream()
+                .collect(Collectors.groupingBy(line -> line.getOrder().getId()));
+    }
+
+    private static void validatePaging(int page, int size) {
+        if (size < 1 || size > MAX_PAGE_SIZE) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "size must be between 1 and " + MAX_PAGE_SIZE);
         }
         if (page < 0) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "page must not be negative");
         }
-        var newestFirst = Sort.by(Sort.Direction.DESC, "createdAt", "id");
-        var orders = orderRepository.findByCustomerId(customerId, PageRequest.of(page, size, newestFirst));
-        var history = new ArrayList<OrderSummary>();
-        for (var order : orders) {
-            var lines = orderLineRepository.findByOrderId(order.getId());
-            history.add(new OrderSummary(order.getId(), order.getCreatedAt(), lines.size(), Pricing.orderTotal(lines)));
-        }
-        return history;
     }
 }
