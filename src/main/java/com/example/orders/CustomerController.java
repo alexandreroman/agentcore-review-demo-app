@@ -1,12 +1,12 @@
 package com.example.orders;
 
-import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
 
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
 import org.springframework.http.HttpStatus;
-import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -19,14 +19,15 @@ import org.springframework.web.server.ResponseStatusException;
 class CustomerController {
 
     private static final int MAX_QUERY_LENGTH = 100;
+    private static final int MAX_PAGE_SIZE = 100;
 
-    private final JdbcClient jdbcClient;
+    private final CustomerRepository customerRepository;
     private final OrderRepository orderRepository;
     private final OrderLineRepository orderLineRepository;
 
-    CustomerController(JdbcClient jdbcClient, OrderRepository orderRepository,
+    CustomerController(CustomerRepository customerRepository, OrderRepository orderRepository,
             OrderLineRepository orderLineRepository) {
-        this.jdbcClient = jdbcClient;
+        this.customerRepository = customerRepository;
         this.orderRepository = orderRepository;
         this.orderLineRepository = orderLineRepository;
     }
@@ -34,50 +35,54 @@ class CustomerController {
     @GetMapping("/search")
     List<CustomerSummary> searchCustomers(@RequestParam String q, @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size) {
-        if (size < 1 || size > 100) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "size must be between 1 and 100");
-        }
-        if (page < 0) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "page must not be negative");
-        }
+        var byName = pageRequest(page, size, Sort.by("name"));
         if (q.length() > MAX_QUERY_LENGTH) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
                     "q must be at most " + MAX_QUERY_LENGTH + " characters");
         }
-        var sql = "SELECT id, name, email FROM customers "
-                + "WHERE name LIKE :pattern ESCAPE '\\' OR email LIKE :pattern ESCAPE '\\' "
-                + "ORDER BY name LIMIT :limit OFFSET :offset";
-        return jdbcClient.sql(sql)
-                .param("pattern", "%" + escapeLikeWildcards(q) + "%")
-                .param("limit", size)
-                .param("offset", (long) page * size)
-                .query(CustomerSummary.class)
-                .list();
-    }
-
-    /**
-     * Makes the wildcards of a LIKE pattern literal, so user input can only ever match itself.
-     */
-    private static String escapeLikeWildcards(String value) {
-        return value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_");
+        return customerRepository.findByNameContainingIgnoreCaseOrEmailContainingIgnoreCase(q, q, byName)
+                .stream()
+                .map(customer -> new CustomerSummary(customer.getId(), customer.getName(), customer.getEmail()))
+                .toList();
     }
 
     @GetMapping("/{customerId}/orders")
     List<OrderSummary> customerOrders(@PathVariable long customerId, @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "20") int size) {
-        if (size < 1 || size > 100) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "size must be between 1 and 100");
+        var newestFirst = pageRequest(page, size, Sort.by(Sort.Direction.DESC, "createdAt", "id"));
+        var orders = orderRepository.findByCustomerId(customerId, newestFirst);
+        var linesByOrderId = linesByOrderId(orders);
+        return orders.stream()
+                .map(order -> {
+                    List<PricedOrderLine> lines = linesByOrderId.getOrDefault(order.getId(), List.of());
+                    return new OrderSummary(order.getId(), order.getCreatedAt(), lines.size(),
+                            Pricing.orderTotal(lines));
+                })
+                .toList();
+    }
+
+    /**
+     * The lines of all given orders, grouped by order id, fetched in one query instead of one query per order.
+     */
+    private Map<Long, List<PricedOrderLine>> linesByOrderId(List<Order> orders) {
+        var orderIds = orders.stream().map(Order::getId).toList();
+        if (orderIds.isEmpty()) {
+            return Map.of();
+        }
+        return orderLineRepository.findByOrderIdIn(orderIds).stream()
+                .collect(Collectors.groupingBy(PricedOrderLine::orderId));
+    }
+
+    /**
+     * Validates the paging parameters shared by the endpoints of this controller.
+     */
+    private static PageRequest pageRequest(int page, int size, Sort sort) {
+        if (size < 1 || size > MAX_PAGE_SIZE) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "size must be between 1 and " + MAX_PAGE_SIZE);
         }
         if (page < 0) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "page must not be negative");
         }
-        var newestFirst = Sort.by(Sort.Direction.DESC, "createdAt", "id");
-        var orders = orderRepository.findByCustomerId(customerId, PageRequest.of(page, size, newestFirst));
-        var history = new ArrayList<OrderSummary>();
-        for (var order : orders) {
-            var lines = orderLineRepository.findByOrderId(order.getId());
-            history.add(new OrderSummary(order.getId(), order.getCreatedAt(), lines.size(), Pricing.orderTotal(lines)));
-        }
-        return history;
+        return PageRequest.of(page, size, sort);
     }
 }
