@@ -18,6 +18,8 @@ import org.springframework.web.server.ResponseStatusException;
 @RequestMapping("/customers")
 class CustomerController {
 
+    private static final int MAX_QUERY_LENGTH = 100;
+
     private final JdbcClient jdbcClient;
     private final OrderRepository orderRepository;
     private final OrderLineRepository orderLineRepository;
@@ -38,12 +40,26 @@ class CustomerController {
         if (page < 0) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "page must not be negative");
         }
+        if (q.length() > MAX_QUERY_LENGTH) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "q must be at most " + MAX_QUERY_LENGTH + " characters");
+        }
         var sql = "SELECT id, name, email FROM customers "
-                + "WHERE name LIKE '%" + q + "%' OR email LIKE '%" + q + "%' "
-                + "ORDER BY name LIMIT " + size + " OFFSET " + page * size;
+                + "WHERE name LIKE :pattern ESCAPE '\\' OR email LIKE :pattern ESCAPE '\\' "
+                + "ORDER BY name LIMIT :limit OFFSET :offset";
         return jdbcClient.sql(sql)
+                .param("pattern", "%" + escapeLikeWildcards(q) + "%")
+                .param("limit", size)
+                .param("offset", (long) page * size)
                 .query(CustomerSummary.class)
                 .list();
+    }
+
+    /**
+     * Makes the wildcards of a LIKE pattern literal, so user input can only ever match itself.
+     */
+    private static String escapeLikeWildcards(String value) {
+        return value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_");
     }
 
     @GetMapping("/{customerId}/orders")
