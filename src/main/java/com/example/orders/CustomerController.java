@@ -39,9 +39,10 @@ class CustomerController {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "page must not be negative");
         }
         var sql = "SELECT id, name, email FROM customers "
-                + "WHERE name LIKE '%" + q + "%' OR email LIKE '%" + q + "%' "
-                + "ORDER BY name LIMIT " + size + " OFFSET " + page * size;
+                + "WHERE name LIKE :q OR email LIKE :q "
+                + "ORDER BY name LIMIT " + size + " OFFSET " + (long) page * size;
         return jdbcClient.sql(sql)
+                .param("q", "%" + q + "%")
                 .query(CustomerSummary.class)
                 .list();
     }
