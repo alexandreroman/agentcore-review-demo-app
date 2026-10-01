@@ -47,6 +47,13 @@ class OrderLine implements PricedLine {
         return id;
     }
 
+    /**
+     * Identifier of the owning order, read from the lazy proxy without loading it.
+     */
+    Long getOrderId() {
+        return order.getId();
+    }
+
     String getProduct() {
         return product;
     }
