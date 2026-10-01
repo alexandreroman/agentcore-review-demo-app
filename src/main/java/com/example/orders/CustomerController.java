@@ -2,6 +2,8 @@ package com.example.orders;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.function.Function;
+import java.util.stream.Collectors;
 
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
@@ -20,13 +22,10 @@ class CustomerController {
 
     private final JdbcClient jdbcClient;
     private final OrderRepository orderRepository;
-    private final OrderLineRepository orderLineRepository;
 
-    CustomerController(JdbcClient jdbcClient, OrderRepository orderRepository,
-            OrderLineRepository orderLineRepository) {
+    CustomerController(JdbcClient jdbcClient, OrderRepository orderRepository) {
         this.jdbcClient = jdbcClient;
         this.orderRepository = orderRepository;
-        this.orderLineRepository = orderLineRepository;
     }
 
     @GetMapping("/search")
@@ -60,9 +59,17 @@ class CustomerController {
         }
         var newestFirst = Sort.by(Sort.Direction.DESC, "createdAt", "id");
         var orders = orderRepository.findByCustomerId(customerId, PageRequest.of(page, size, newestFirst));
+        if (orders.isEmpty()) {
+            return List.of();
+        }
+        var orderIds = orders.stream().map(Order::getId).toList();
+        // One extra query for the whole page instead of one query per order.
+        var withLines = orderRepository.findWithLinesByIdIn(orderIds).stream()
+                .collect(Collectors.toMap(Order::getId, Function.identity()));
         var history = new ArrayList<OrderSummary>();
         for (var order : orders) {
-            var lines = orderLineRepository.findByOrderId(order.getId());
+            var fetched = withLines.get(order.getId());
+            var lines = fetched != null ? fetched.getLines() : List.<OrderLine>of();
             history.add(new OrderSummary(order.getId(), order.getCreatedAt(), lines.size(), Pricing.orderTotal(lines)));
         }
         return history;

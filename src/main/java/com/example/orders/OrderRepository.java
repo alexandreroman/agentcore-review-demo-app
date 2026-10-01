@@ -1,5 +1,6 @@
 package com.example.orders;
 
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 
@@ -13,4 +14,7 @@ interface OrderRepository extends JpaRepository<Order, Long> {
     Optional<Order> findWithCustomerAndLinesById(Long id);
 
     List<Order> findByCustomerId(Long customerId, Pageable pageable);
+
+    @EntityGraph(attributePaths = "lines")
+    List<Order> findWithLinesByIdIn(Collection<Long> ids);
 }

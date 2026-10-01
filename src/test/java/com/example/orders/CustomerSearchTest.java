@@ -19,7 +19,9 @@ class CustomerSearchTest {
 
     @BeforeEach
     void setUp() {
-        var dataSource = new DriverManagerDataSource("jdbc:h2:mem:customer-search-" + System.nanoTime());
+        // DB_CLOSE_DELAY=-1 keeps the in-memory database alive between connections.
+        var dataSource = new DriverManagerDataSource(
+                "jdbc:h2:mem:customer-search-" + System.nanoTime() + ";DB_CLOSE_DELAY=-1");
         dataSource.setDriverClassName("org.h2.Driver");
         var jdbcClient = JdbcClient.create(dataSource);
         jdbcClient.sql("CREATE TABLE customers (id BIGINT PRIMARY KEY, name VARCHAR(255) NOT NULL, "
@@ -28,7 +30,7 @@ class CustomerSearchTest {
                 .update();
         jdbcClient.sql("INSERT INTO customers (id, name, email) VALUES (2, 'Alan Turing', 'alan@example.com')")
                 .update();
-        controller = new CustomerController(jdbcClient, null, null);
+        controller = new CustomerController(jdbcClient, null);
     }
 
     @Test
