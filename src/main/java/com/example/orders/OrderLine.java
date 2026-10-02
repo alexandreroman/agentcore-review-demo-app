@@ -43,6 +43,10 @@ class OrderLine implements PricedLine {
         this.order = order;
     }
 
+    Order getOrder() {
+        return order;
+    }
+
     Long getId() {
         return id;
     }
