@@ -47,6 +47,10 @@ class OrderLine implements PricedLine {
         return id;
     }
 
+    Order getOrder() {
+        return order;
+    }
+
     String getProduct() {
         return product;
     }
